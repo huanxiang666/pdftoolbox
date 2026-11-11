@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-22.04
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project + PyInstaller
+        run: python -m pip install . pyinstaller
+
+      - name: Build bundle
+        run: pyinstaller packaging/pdftoolbox.spec --noconfirm
+
+      # bash on both platforms so `set -e` catches any failing step; exercises
+      # the frozen binary through info -> clean -> number -> merge.
+      - name: Smoke test (frozen binary)
+        shell: bash
+        run: |
+          BIN=dist/pdftoolbox/pdftoolbox
+          if [[ "${{ runner.os }}" == "Windows" ]]; then BIN=dist/pdftoolbox/pdftoolbox.exe; fi
+          "$BIN" --version
+          "$BIN" check
+          python - <<'PY'
+          import pymupdf
+          d = pymupdf.open()
+          for i in range(2):
+              p = d.new_page()
+              p.insert_text((72, 100), f"release smoke {i+1}")
+          d.new_page()
+          d.save("release-smoke.pdf")
+          PY
+          "$BIN" clean release-smoke.pdf -o release-clean.pdf
+          "$BIN" number release-clean.pdf -o release-num.pdf --format "{n}/{t}"
+          "$BIN" watermark release-num.pdf -o release-wm.pdf --text SMOKE --opacity 0.3
+          "$BIN" merge release-wm.pdf release-wm.pdf -o release-merged.pdf
+          test -s release-merged.pdf
+          head -c 5 release-merged.pdf | grep -q "%PDF-"
+
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            V=$(python -c "import pathlib,re;print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/pdftoolbox/__init__.py').read_text()).group(1))")
+            echo "version=${V}-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Version/platform flow in through env, never string-spliced into the
+      # script body, so an unusual tag name can't inject shell.
+      - name: Package artifacts
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          if [[ "$RUNNER_OS_NAME" == "Windows" ]]; then
+            powershell -NoProfile -Command 'Compress-Archive -Path dist/pdftoolbox -DestinationPath ("pdftoolbox-" + $env:VER + "-" + $env:PLATFORM + ".zip")'
+          else
+            tar -czf "pdftoolbox-${VER}-${PLATFORM}.tar.gz" -C dist pdftoolbox
+          fi
+          ls -la pdftoolbox-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdftoolbox-${{ matrix.platform }}
+          path: pdftoolbox-*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          # glob required: artifacts are pdftoolbox-windows-x64 / -linux-x64
+          pattern: pdftoolbox-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: List release files
+        run: ls -la artifacts/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
