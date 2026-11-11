@@ -105,6 +105,36 @@ def test_open_any_pdf_and_image(tmp_path):
     doc.close()
 
 
+def test_webp_without_exif_is_reencoded(tmp_path):
+    """Regression (review blocker #1): MuPDF cannot decode WebP — such files
+    must be re-encoded via Pillow instead of passed through as raw bytes."""
+    from PIL import Image
+
+    p = tmp_path / "photo.webp"
+    Image.new("RGB", (100, 60), (10, 200, 90)).save(p)
+    doc = open_any(p, dpi=96)
+    try:
+        assert doc.page_count == 1
+        assert doc[0].rect.width == pytest.approx(75, abs=2)  # 100px @96dpi
+        assert len(doc[0].get_images()) == 1
+    finally:
+        doc.close()
+
+
+def test_collect_inputs_natural_order(tmp_path):
+    """Directory expansion must sort img2 before img10 (scan-set merge order)."""
+    from conftest import make_image
+
+    from pdftoolbox.ingest import collect_inputs
+
+    d = tmp_path / "scans"
+    d.mkdir()
+    for name in ("img10.png", "img2.png", "img1.png"):
+        make_image(d / name)
+    files, ignored = collect_inputs([str(d)])
+    assert [f.name for f in files] == ["img1.png", "img2.png", "img10.png"]
+
+
 def test_open_any_missing_and_unsupported(tmp_path):
     with pytest.raises(OpError, match="not found"):
         open_any(tmp_path / "ghost.pdf")

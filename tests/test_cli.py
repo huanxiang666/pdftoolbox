@@ -98,6 +98,20 @@ def test_cli_error_exit_code(tmp_path, capsys):
     assert "error" in capsys.readouterr().err.lower()
 
 
+def test_cli_unexpected_error_no_traceback(tmp_path, capsys):
+    """Regression (review): OS-level failures (output path under a regular
+    file) must produce a readable error + exit 1, never a bare traceback."""
+    src = make_pdf(tmp_path / "a.pdf", pages=1)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file, not a directory")
+    bad_out = blocker / "sub" / "out.pdf"
+    code = main(["rotate", str(src), "-o", str(bad_out), "--angle", "90"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+
+
 def test_cli_usage_error():
     with pytest.raises(SystemExit) as excinfo:
         main(["nosuchcommand"])

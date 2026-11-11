@@ -18,6 +18,24 @@ from .ingest import WordConverter, open_any
 #: Placeholder tokens supported by number/watermark format strings.
 FORMAT_TOKENS = ("{n}", "{t}")
 
+_ALLOWED_FMT_FIELDS = {"n", "t"}
+
+
+def _validate_fmt(fmt: str) -> None:
+    """Reject unknown {} fields early with a readable error instead of a
+    bare KeyError from str.format deep inside the page loop."""
+    import string
+
+    for _literal, field, _spec, _conv in string.Formatter().parse(fmt):
+        if field is None:
+            continue
+        root = field.split(".")[0].split("[")[0]
+        if root and root not in _ALLOWED_FMT_FIELDS:
+            raise OpError(
+                f"unknown placeholder {{{root}}} in format {fmt!r} "
+                "(only {n} = page number and {t} = total pages are supported)"
+            )
+
 
 @dataclass
 class OpResult:
@@ -120,12 +138,21 @@ def split(
             for i in range(total):
                 emit([i], f"{_sanitize(prefix)}-{i + 1:04d}.pdf")
         elif ranges:
+            used_names: set[str] = set()
             for seg in str(ranges).split(","):
                 seg = seg.strip()
                 if not seg:
                     continue
                 indices = parse_pages(seg, total)  # validates one segment
-                emit(indices, f"{_sanitize(prefix)}-{_sanitize(seg.replace(' ', ''))}.pdf")
+                name = f"{_sanitize(prefix)}-{_sanitize(seg.replace(' ', ''))}.pdf"
+                # Duplicate segments (e.g. "1-2,1-2") must not silently
+                # overwrite each other — uniquify and keep the count honest.
+                base, n = name, 2
+                while name.lower() in used_names:
+                    name = base.replace(".pdf", f"-{n}.pdf")
+                    n += 1
+                used_names.add(name.lower())
+                emit(indices, name)
         else:
             raise OpError("split needs --per-page or --ranges")
         result = OpResult(output=str(out_dir), pages=total,
@@ -196,8 +223,11 @@ def number_pages(
     """
     if "{n}" not in fmt:
         raise OpError("number format must contain {n}")
+    _validate_fmt(fmt)
     if start_page < 1:
         raise OpError(f"start-page must be >= 1, got {start_page}")
+    if fontsize <= 0:
+        raise OpError(f"fontsize must be > 0, got {fontsize}")
     if not 0 < opacity <= 1:
         raise OpError(f"opacity must be in (0, 1], got {opacity}")
     src = Path(src)
@@ -275,6 +305,10 @@ def watermark(
         raise OpError("watermark needs exactly one of --text or --image")
     if not 0 < opacity <= 1:
         raise OpError(f"opacity must be in (0, 1], got {opacity}")
+    if text and fontsize <= 0:
+        raise OpError(f"fontsize must be > 0, got {fontsize}")
+    if not text and not 0 < image_scale <= 1:
+        raise OpError(f"image-scale must be in (0, 1], got {image_scale}")
     src = Path(src)
     output = Path(output) if output else _default_output(src, "watermark")
     rgb = parse_color(color, (0.6, 0.6, 0.6))
@@ -465,7 +499,6 @@ def pdf_info(src: Path | str) -> OpResult:
             "page_sizes": sizes,
             "rotated_pages": rotated,
             "pages_with_text": text_pages,
-            "encrypted": doc.is_encrypted,
             "metadata": meta,
         }
         result = OpResult(output=str(src), pages=doc.page_count, details=details)

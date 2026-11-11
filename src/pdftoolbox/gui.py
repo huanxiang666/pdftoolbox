@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
-import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -28,17 +27,6 @@ _FILETYPES = [
     ("图片", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.gif *.webp"),
     ("所有文件", "*.*"),
 ]
-
-
-def _open_in_file_manager(path: Path) -> None:
-    if sys.platform == "win32":
-        import os
-
-        os.startfile(str(path))  # type: ignore[attr-defined]
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)])
-    else:
-        subprocess.Popen(["xdg-open", str(path)])
 
 
 class App:
@@ -118,7 +106,6 @@ class App:
                         self._log(f"  {line}")
                     if result.output:
                         self._log(f"  输出: {Path(result.output).resolve()}")
-                        self._last_output = Path(result.output)
                 elif kind == "operror":
                     self.status_var.set(f"{label} 失败")
                     self._log(f"  错误: {msg[2]}")
@@ -201,7 +188,8 @@ class App:
             return
         out = self.merge_out_var.get().strip()
         if not out:
-            out = str(Path(self.merge_files[0]).with_name("merged.pdf"))
+            first = Path(self.merge_files[0])
+            out = str(first.with_name(f"{first.stem}-merged.pdf"))
         files = [Path(f) for f in self.merge_files]
 
         from . import ops
@@ -223,7 +211,7 @@ class App:
         self.split_mode_var = tk.StringVar(value="ranges")
         self.split_ranges_var = tk.StringVar(value="1")
 
-        self._file_row(tab, "输入 PDF:", self.split_in_var, open_dir=False)
+        self._file_row(tab, "输入 PDF:", self.split_in_var)
         row = ttk.Frame(tab)
         row.pack(fill="x", pady=4)
         ttk.Label(row, text="输出目录:").pack(side="left")
@@ -327,14 +315,21 @@ class App:
         if not src:
             messagebox.showwarning("pdftoolbox", "请选择输入 PDF")
             return
+        # Read every Tk variable HERE on the main thread — the worker thread
+        # must never touch Tcl state (queue-only threading model).
         out = self.num_out_var.get().strip() or None
+        try:
+            start_page = int(self.num_start_var.get().strip() or 1)
+            first_number = int(self.num_first_var.get().strip() or 1)
+            fontsize = float(self.num_size_var.get().strip() or 11)
+        except ValueError:
+            messagebox.showerror("pdftoolbox", "起始页/起始编号/字号必须是数字")
+            return
+        fmt = self.num_fmt_var.get() or "{n}"
+        position = self.num_pos_var.get()
         self._run("页码", lambda: ops.number_pages(
-            src, out,
-            start_page=int(self.num_start_var.get() or 1),
-            first_number=int(self.num_first_var.get() or 1),
-            fmt=self.num_fmt_var.get() or "{n}",
-            position=self.num_pos_var.get(),
-            fontsize=float(self.num_size_var.get() or 11),
+            src, out, start_page=start_page, first_number=first_number,
+            fmt=fmt, position=position, fontsize=fontsize,
         ))
 
     # --------------------------------------------------------- watermark tab
@@ -388,16 +383,24 @@ class App:
         if not src:
             messagebox.showwarning("pdftoolbox", "请选择输入 PDF")
             return
+        # Read all Tk variables on the main thread (see _number_run).
         out = self.wm_out_var.get().strip() or None
-        text = self.wm_text_var.get().strip() if self.wm_mode_var.get() == "text" else None
-        image = self.wm_image_var.get().strip() if self.wm_mode_var.get() == "image" else None
+        mode = self.wm_mode_var.get()
+        text = self.wm_text_var.get().strip() if mode == "text" else None
+        image = self.wm_image_var.get().strip() if mode == "image" else None
+        pages = self.wm_pages_var.get().strip() or "all"
+        tile = bool(self.wm_tile_var.get())
+        try:
+            opacity = float(self.wm_opacity_var.get().strip() or 0.25)
+            angle = float(self.wm_angle_var.get().strip() or 45)
+            fontsize = float(self.wm_size_var.get().strip() or 36)
+        except ValueError:
+            messagebox.showerror("pdftoolbox", "不透明度/角度/字号必须是数字")
+            return
         self._run("水印", lambda: ops.watermark(
             src, out, text=text or None, image=image or None,
-            pages=self.wm_pages_var.get().strip() or "all",
-            opacity=float(self.wm_opacity_var.get() or 0.25),
-            angle=float(self.wm_angle_var.get() or 45),
-            fontsize=float(self.wm_size_var.get() or 36),
-            tile=bool(self.wm_tile_var.get()),
+            pages=pages, opacity=opacity, angle=angle, fontsize=fontsize,
+            tile=tile,
         ))
 
     # ------------------------------------------------------------- clean tab
@@ -424,11 +427,16 @@ class App:
         if not src:
             messagebox.showwarning("pdftoolbox", "请选择输入 PDF")
             return
+        # Read all Tk variables on the main thread (see _number_run).
         out = self.clean_out_var.get().strip() or None
+        dry_run = bool(self.clean_dryrun_var.get())
+        try:
+            threshold = float(self.clean_threshold_var.get().strip() or 0.002)
+        except ValueError:
+            messagebox.showerror("pdftoolbox", "墨迹阈值必须是数字")
+            return
         self._run("删空白页", lambda: ops.clean_blank(
-            src, out,
-            threshold=float(self.clean_threshold_var.get() or 0.002),
-            dry_run=bool(self.clean_dryrun_var.get()),
+            src, out, threshold=threshold, dry_run=dry_run,
         ))
 
     # -------------------------------------------------------------- info tab
@@ -458,7 +466,7 @@ class App:
 
     # ------------------------------------------------------------- shared UI
     def _file_row(self, parent, label: str, var: tk.StringVar,
-                  save_var: tk.StringVar | None = None, open_dir: bool = True) -> None:
+                  save_var: tk.StringVar | None = None) -> None:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=4)
         ttk.Label(row, text=label).pack(side="left")

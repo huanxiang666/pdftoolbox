@@ -181,7 +181,6 @@ def main(argv: list[str] | None = None) -> int:
     from . import ops
     from .ingest import collect_inputs
 
-    quiet = bool(getattr(args, "quiet", False))
     try:
         if args.command == "merge":
             files, ignored = collect_inputs(args.inputs, recursive=args.recursive)
@@ -222,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         else:  # pragma: no cover - argparse guards this
             parser.print_help()
             return 2
-        _report(result, quiet)
+        _report(result, quiet=False)
         return 0
     except OpError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -230,6 +229,12 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
         return 130
+    except Exception as exc:
+        # Never leave users with a bare traceback: any unexpected failure
+        # (locked output file, disk full, corrupted input edge case) becomes
+        # a readable one-liner with the same failure exit code.
+        print(f"error: {exc.__class__.__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

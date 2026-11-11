@@ -37,9 +37,11 @@ jobs:
       # the frozen binary through info -> clean -> number -> merge.
       - name: Smoke test (frozen binary)
         shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
         run: |
           BIN=dist/pdftoolbox/pdftoolbox
-          if [[ "${{ runner.os }}" == "Windows" ]]; then BIN=dist/pdftoolbox/pdftoolbox.exe; fi
+          if [[ "$RUNNER_OS_NAME" == "Windows" ]]; then BIN=dist/pdftoolbox/pdftoolbox.exe; fi
           "$BIN" --version
           "$BIN" check
           python - <<'PY'
@@ -83,6 +85,12 @@ jobs:
           else
             tar -czf "pdftoolbox-${VER}-${PLATFORM}.tar.gz" -C dist pdftoolbox
           fi
+          # sha256 checksums so users can verify downloads (sha256sum exists in
+          # Git Bash on Windows runners too).
+          for f in pdftoolbox-*.zip pdftoolbox-*.tar.gz; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
           ls -la pdftoolbox-*
 
       - uses: actions/upload-artifact@v4

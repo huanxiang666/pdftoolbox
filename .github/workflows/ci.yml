@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]   # PRs are covered by the pull_request trigger below
   pull_request:
 
 concurrency:

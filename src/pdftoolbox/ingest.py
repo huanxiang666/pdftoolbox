@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,9 @@ ENV_WORD_CONVERTER = "PDFTOOLBOX_WORD_CONVERTER"
 
 KIND_SOFFICE = "soffice"
 KIND_DOCX2PDF = "docx2pdf"
+
+#: Image formats MuPDF cannot decode natively; always re-encoded via Pillow.
+_REENCODE_EXTS = frozenset({".webp"})
 
 _SOFFICE_CANDIDATES = (
     "soffice",
@@ -155,10 +159,13 @@ def open_image(src: Path, dpi: int = 96) -> "pymupdf.Document":
 
     Uses the image's native pixel size (w_pt = px * 72 / dpi). Honors EXIF
     orientation (phone photos) by re-encoding the transposed pixels.
-    LIMIT: multi-frame GIF/TIFF use the first frame only.
+    Formats MuPDF cannot decode natively (WebP) always go through Pillow
+    re-encoding. LIMIT: multi-frame GIF/TIFF use the first frame only.
     """
     if dpi <= 0:
         raise OpError(f"image dpi must be > 0, got {dpi}")
+    # MuPDF has no WebP decoder in stock builds — always re-encode those.
+    needs_reencode = src.suffix.lower() in _REENCODE_EXTS
     try:
         from PIL import Image, ImageOps
 
@@ -168,8 +175,8 @@ def open_image(src: Path, dpi: int = 96) -> "pymupdf.Document":
                 orientation = im.getexif().get(0x0112)
             except Exception:
                 orientation = None
-            if orientation is not None and orientation != 1:
-                im2 = ImageOps.exif_transpose(im)
+            if needs_reencode or (orientation is not None and orientation != 1):
+                im2 = ImageOps.exif_transpose(im) if (orientation is not None and orientation != 1) else im
                 w_px, h_px = im2.size
                 if im2.mode == "P":
                     im2 = im2.convert("RGBA")
@@ -245,6 +252,14 @@ def open_any(
     raise OpError(f"unsupported input type: {src.name} (supported: {', '.join(SUPPORTED_INPUT_EXTENSIONS)})")
 
 
+_NUM_PART = re.compile(r"(\d+)")
+
+
+def _natural_key(path: Path):
+    """Sort key so img2.png comes before img10.png (scan-set merge order)."""
+    return [int(t) if t.isdigit() else t for t in _NUM_PART.split(str(path).lower())]
+
+
 def collect_inputs(
     paths: list[str] | tuple[str, ...],
     recursive: bool = False,
@@ -252,7 +267,8 @@ def collect_inputs(
     """Expand files/directories into an ordered input list for merging.
 
     Order matters for merge: explicit files keep their given order (and may
-    repeat on purpose), directories expand in-place with sorted contents.
+    repeat on purpose), directories expand in-place with natural-sorted
+    contents (img2 before img10).
     Returns (files, ignored).
     """
     files: list[Path] = []
@@ -269,7 +285,7 @@ def collect_inputs(
         if p.is_dir():
             pattern = "**/*" if recursive else "*"
             found = False
-            for entry in sorted(p.glob(pattern), key=lambda q: str(q).lower()):
+            for entry in sorted(p.glob(pattern), key=_natural_key):
                 if entry.is_file() and entry.suffix.lower() in SUPPORTED_INPUT_EXTENSIONS:
                     add_file(entry)
                     found = True

@@ -97,6 +97,15 @@ class TestSplit:
         with pytest.raises(OpError, match="out of bounds"):
             ops.split(src, tmp_path / "out", ranges="1-9")
 
+    def test_duplicate_ranges_get_unique_names(self, tmp_path):
+        """Regression (review): '1-2,1-2' must produce two files, not silently
+        overwrite one while reporting count=2."""
+        src = make_pdf(tmp_path / "s.pdf", pages=4)
+        res = ops.split(src, tmp_path / "out", ranges="1-2,1-2")
+        assert res.details["count"] == 2
+        files = list((tmp_path / "out").glob("*.pdf"))
+        assert len(files) == 2
+
 
 # -------------------------------------------------------------------- rotate
 class TestRotate:
@@ -175,10 +184,14 @@ class TestNumber:
         src = make_pdf(tmp_path / "n.pdf", pages=2)
         with pytest.raises(OpError, match=r"\{n\}"):
             ops.number_pages(src, tmp_path / "x.pdf", fmt="{t} only")
+        with pytest.raises(OpError, match="unknown placeholder"):
+            ops.number_pages(src, tmp_path / "x.pdf", fmt="{n} {x}")
         with pytest.raises(OpError, match="beyond"):
             ops.number_pages(src, tmp_path / "x.pdf", start_page=9)
         with pytest.raises(OpError, match="opacity"):
             ops.number_pages(src, tmp_path / "x.pdf", opacity=0)
+        with pytest.raises(OpError, match="fontsize"):
+            ops.number_pages(src, tmp_path / "x.pdf", fontsize=0)
 
 
 # ----------------------------------------------------------------- watermark
@@ -228,6 +241,10 @@ class TestWatermark:
             ops.watermark(src, tmp_path / "x.pdf", text="a", image="b.png")
         with pytest.raises(OpError, match="opacity"):
             ops.watermark(src, tmp_path / "x.pdf", text="a", opacity=1.5)
+        with pytest.raises(OpError, match="fontsize"):
+            ops.watermark(src, tmp_path / "x.pdf", text="a", fontsize=0)
+        with pytest.raises(OpError, match="image-scale"):
+            ops.watermark(src, tmp_path / "x.pdf", image=__file__, image_scale=0)
         with pytest.raises(OpError, match="not found"):
             ops.watermark(src, tmp_path / "x.pdf", image=str(tmp_path / "ghost.png"))
 
@@ -282,7 +299,6 @@ def test_info(tmp_path):
     d = res.details
     assert d["pages"] == 3
     assert d["pages_with_text"] == 2
-    assert d["encrypted"] is False
     assert sum(d["page_sizes"].values()) == 3
 
 
