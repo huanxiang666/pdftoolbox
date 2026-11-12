@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pdftoolbox — PDF 工具箱</title>
+<style>
+  :root { --accent:#2563eb; --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1f2430; --muted:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 22px; display:flex; align-items:baseline; gap:12px; }
+  header h1 { font-size:18px; margin:0; }
+  header span { color:var(--muted); font-size:12px; }
+  nav { display:flex; gap:4px; padding:10px 22px 0; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav button { border:0; background:none; padding:10px 16px; font-size:14px; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; }
+  nav button.on { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  main { max-width:860px; margin:22px auto; padding:0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .drop { border:2px dashed #c9d2dd; border-radius:10px; padding:26px; text-align:center; color:var(--muted); cursor:pointer; transition:.15s; }
+  .drop.over, .drop:hover { border-color:var(--accent); color:var(--accent); background:#f0f6ff; }
+  .files { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .files div { background:#f2f5f9; border-radius:6px; padding:6px 10px; display:flex; justify-content:space-between; gap:10px; }
+  .files button { border:0; background:none; color:#c0392b; cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-top:14px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input,select { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; background:#fff; }
+  .row { display:flex; gap:10px; align-items:center; margin-top:16px; flex-wrap:wrap; }
+  .go { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:11px 26px; font-size:15px; cursor:pointer; }
+  .go:disabled { opacity:.5; cursor:not-allowed; }
+  .out { margin-top:14px; white-space:pre-wrap; background:#0f172a; color:#d7e3f4; border-radius:8px; padding:12px; font:12px/1.7 ui-monospace,Consolas,monospace; max-height:260px; overflow:auto; }
+  .out a { color:#7dd3fc; }
+  .err { background:#7f1d1d; color:#fecaca; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  .chk { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--text); }
+</style>
+</head>
+<body>
+<header><h1>pdftoolbox</h1><span>PDF 工具箱 · 全部在本机处理，文件不会上传到任何服务器</span></header>
+<nav id="tabs"></nav>
+<main>
+  <div class="card">
+    <div class="drop" id="drop">把文件拖到这里，或点击选择<br><span class="hint" id="acceptHint"></span></div>
+    <input type="file" id="picker" multiple hidden>
+    <div class="files" id="fileList"></div>
+  </div>
+  <div class="card">
+    <div class="grid" id="params"></div>
+    <div class="row">
+      <button class="go" id="run">开始处理</button>
+      <span class="hint" id="status"></span>
+    </div>
+    <div class="out" id="out" hidden></div>
+  </div>
+</main>
+<script>
+const POS = ["top-left","top-center","top-right","middle-left","center","middle-right","bottom-left","bottom-center","bottom-right"];
+const OPS = [
+ {id:"merge", name:"合并", hint:"PDF / Word / 图片，按添加顺序合成一个 PDF", accept:"any",
+  params:[{k:"image-dpi",t:"num",d:96,label:"图片 DPI（96 屏幕 / 300 扫描归档）"},{k:"word-timeout",t:"num",d:300,label:"Word 转换超时（秒）"}]},
+ {id:"split", name:"拆分", hint:"每页一个文件，或按页码范围每段一个文件", accept:".pdf",
+  params:[{k:"mode",t:"sel",opts:["per-page","ranges"],d:"per-page",label:"拆分方式"},{k:"ranges",t:"str",d:"",label:"页码范围，如 1-3,5,8-（方式=ranges 时）"},{k:"prefix",t:"str",d:"",label:"输出文件名前缀（可选）"}]},
+ {id:"rotate", name:"旋转", hint:"顺时针旋转 90/180/270 度，可与已有旋转叠加", accept:".pdf",
+  params:[{k:"angle",t:"sel",opts:["90","180","270"],d:"90",label:"角度"},{k:"pages",t:"str",d:"",label:"页码范围（留空=全部）"}]},
+ {id:"number", name:"页码", hint:"从指定页开始盖页码，中文格式可搜索", accept:".pdf",
+  params:[{k:"start-page",t:"num",d:1,label:"从第几页开始"},{k:"first-number",t:"num",d:1,label:"起始页显示的编号"},{k:"format",t:"str",d:"{n}",label:"格式（{n}=编号 {t}=总页数）"},{k:"position",t:"sel",opts:POS,d:"bottom-center",label:"位置"},{k:"margin",t:"num",d:24,label:"边距 pt"},{k:"fontsize",t:"num",d:11,label:"字号"},{k:"color",t:"str",d:"black",label:"颜色"},{k:"opacity",t:"num",d:1,label:"不透明度 0-1"}]},
+ {id:"watermark", name:"水印", hint:"文字（可平铺）或图片水印", accept:".pdf+img",
+  params:[{k:"text",t:"str",d:"",label:"水印文字（与图片二选一）"},{k:"opacity",t:"num",d:0.25,label:"不透明度 0-1"},{k:"angle",t:"num",d:45,label:"文字旋转角度"},{k:"fontsize",t:"num",d:36,label:"文字字号"},{k:"color",t:"str",d:"gray",label:"文字颜色"},{k:"position",t:"sel",opts:POS,d:"center",label:"位置"},{k:"tile",t:"chk",d:false,label:"平铺整页"},{k:"image-scale",t:"num",d:0.25,label:"图片宽度占页宽比例"},{k:"pages",t:"str",d:"",label:"页码范围（留空=全部）"}]},
+ {id:"clean", name:"删空白页", hint:"删除视觉空白页；含文字的页永不被删", accept:".pdf",
+  params:[{k:"threshold",t:"num",d:0.002,label:"墨迹占比阈值"},{k:"dry-run",t:"chk",d:false,label:"只检测不删除"}]},
+ {id:"info", name:"信息", hint:"页数、尺寸分布、旋转、文本页、元数据", accept:".pdf", params:[]},
+];
+let cur = OPS[0], files = [];
+const $ = id => document.getElementById(id);
+const tabs = $("tabs");
+OPS.forEach(o=>{ const b=document.createElement("button"); b.textContent=o.name; b.onclick=()=>select(o); tabs.appendChild(b); });
+function select(o){
+  cur=o; files=[]; renderFiles();
+  [...tabs.children].forEach((b,i)=>b.classList.toggle("on", OPS[i]===o));
+  $("acceptHint").textContent = o.hint + "　支持：" + (o.accept===".pdf"?"PDF":o.accept===".pdf+img"?"PDF + 图片（第二张作水印图）":"PDF / Word / 图片");
+  const g=$("params"); g.innerHTML="";
+  o.params.forEach(p=>{
+    const l=document.createElement("label"); l.innerHTML="<span>"+p.label+"</span>";
+    let el;
+    if(p.t==="sel"){ el=document.createElement("select"); p.opts.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v;el.appendChild(op);}); el.value=p.d; }
+    else if(p.t==="chk"){ el=document.createElement("input"); el.type="checkbox"; el.checked=!!p.d; l.className="chk"; }
+    else { el=document.createElement("input"); el.type = p.t==="num"?"number":"text"; el.value=p.d??""; }
+    el.dataset.k=p.k; l.appendChild(el); g.appendChild(l);
+  });
+  $("out").hidden=true; $("status").textContent="";
+}
+function renderFiles(){
+  const box=$("fileList"); box.innerHTML="";
+  files.forEach((f,i)=>{
+    const d=document.createElement("div");
+    d.innerHTML="<span>"+f.name+"　("+ (f.size/1024).toFixed(1) +" KB)</span>";
+    const x=document.createElement("button"); x.textContent="移除"; x.onclick=()=>{files.splice(i,1);renderFiles();};
+    d.appendChild(x); box.appendChild(d);
+  });
+}
+$("drop").onclick=()=>$("picker").click();
+$("picker").onchange=e=>{ files.push(...e.target.files); renderFiles(); e.target.value=""; };
+["dragover","dragenter"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.add("over");}));
+["dragleave","drop"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.remove("over");}));
+$("drop").addEventListener("drop",e=>{ files.push(...e.dataTransfer.files); renderFiles(); });
+$("run").onclick=async ()=>{
+  const out=$("out"); out.hidden=false; out.className="out"; out.textContent="处理中…";
+  $("run").disabled=true; $("status").textContent="正在本机处理";
+  const fd=new FormData();
+  fd.append("op",cur.id);
+  const params={};
+  $("params").querySelectorAll("[data-k]").forEach(el=>{
+    const k=el.dataset.k;
+    if(el.type==="checkbox") params[k]=el.checked;
+    else if(el.type==="number") params[k]= el.value===""?undefined:parseFloat(el.value);
+    else params[k]=el.value;
+  });
+  if(cur.id==="split"){ params["per-page"] = params.mode==="per-page"; delete params.mode; }
+  fd.append("params", JSON.stringify(params));
+  files.forEach(f=>fd.append("files", f));
+  try{
+    const r=await fetch("/api/op",{method:"POST",body:fd});
+    const j=await r.json();
+    if(j.ok===false){ out.className="out err"; out.textContent="错误："+j.error; }
+    else{
+      let txt=(j.messages||[]).join("\n");
+      if(j.details) txt+="\n\n"+JSON.stringify(j.details,null,2);
+      if(j.download) txt+="\n\n下载结果：<a href='"+j.download+"' download='"+(j.filename||"result")+"'>"+(j.filename||"result")+"</a>";
+      out.innerHTML=txt;
+    }
+  }catch(e){ out.className="out err"; out.textContent="请求失败："+e; }
+  $("run").disabled=false; $("status").textContent="";
+};
+select(OPS[0]);
+</script>
+</body>
+</html>

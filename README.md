@@ -1,57 +1,51 @@
-# pdftoolbox — PDF 工具箱
+# pdftoolbox
 
-[![CI](https://github.com/huanxiang666/pdftoolbox/actions/workflows/ci.yml/badge.svg)](https://github.com/huanxiang666/pdftoolbox/actions/workflows/ci.yml)
-[![Release](https://github.com/huanxiang666/pdftoolbox/actions/workflows/release.yml/badge.svg)](https://github.com/huanxiang666/pdftoolbox/actions/workflows/release.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+跨平台（**Windows / macOS / Linux**）PDF 工具箱：**合并**（PDF + Word + 图片）、**拆分**、**旋转**、**页码**、**水印**（文字/图片、可平铺）、**删空白页**、**信息**。命令行 + 内置图形界面（本地 Web UI）。
 
-跨平台（**Windows / Linux**）PDF 工具箱：**合并**（PDF + Word + 图片）、**拆分**、**旋转**、**自定义起始页加页码**、**加水印**（文字/图片、可平铺）、**删空白页**。提供命令行（CLI）和图形界面（GUI）两种用法。
-
-English: [README_EN.md](README_EN.md)
-姊妹项目：[dwg2pdf — DWG/DXF 批量转 PDF](https://github.com/huanxiang666/dwg2pdf)
+> Go 重写版：**单文件、零依赖**（约 14 MB，内嵌 CJK 字体），不需要 Python 或任何运行库。
+> 命令行参数与原版 Python 实现完全一致，习惯可直接迁移。
 
 ## 特性
 
-- **合并**：PDF、Word（.doc/.docx/.odt/.rtf/.wps）、图片（png/jpg/bmp/tif/gif/webp）任意混合，按给定顺序合成一个 PDF；图片按指定 DPI 定尺寸，手机照片 EXIF 方向自动纠正
-- **拆分**：每页一个文件，或按页码范围（`"1-3,5,8-"`）每段一个文件
-- **旋转**：任意页顺时针 90/180/270（支持负角度），与页面已有旋转叠加
-- **页码**：从第 N 页开始、起始编号任意、格式模板 `{n}`/`{t}`（支持中文，如 `第 {n} 页 共 {t} 页`）、9 个锚点位置、字号/颜色/透明度；输出为**可搜索的真实文字**（内置 CJK 字体）
-- **水印**：文字（45° 斜排或平铺整页，中文可用）或图片（PNG 透明通道保留，透明度预乘）；可指定页码范围
-- **删空白页**：低分辨率栅格化 + 墨迹占比阈值判定；**含文字的页面永不删除**（即使白字），支持 `--dry-run` 仅检测
-- **诚实的错误处理**：所有操作原子写盘（临时文件 + rename），报错信息可读，退出码语义清晰
-- **信息**：页数、页面尺寸分布、旋转、文本页统计、元数据
+- **合并**：PDF、Word（.doc/.docx/.odt/.rtf/.wps，经 LibreOffice）、图片（png/jpg/bmp/tif/gif/webp）任意混合；图片按 `--image-dpi` 定尺寸；手机照片 EXIF 方向自动纠正；目录输入自然排序（img2 在 img10 前）
+- **拆分**：每页一个文件，或按范围 `"1-3,5,8-"` 每段一个；重复段自动加后缀不互相覆盖
+- **旋转**：90/180/270（可为负），与页面已有旋转**叠加**
+- **页码**：起始页/起始编号任意、格式模板 `{n}`/`{t}`（支持中文，如 `第 {n} 页 共 {t} 页`）、九锚点位置、字号/颜色/不透明度；**输出为可搜索的真实文字**（内嵌 Noto Sans SC 子集）
+- **水印**：文字（旋转或平铺整页，中文可用）或图片（保留透明通道）；可指定页码范围
+- **删空白页**：纯 Go 内容流分析（无文字、无图像、无非白绘制即空白）；**含文字的页面永不删除**；`--dry-run` 仅检测
+- **信息**：页数、页面尺寸分布、旋转、文本页统计、元数据（`--json` 机器可读）
+- **诚实的错误处理**：原子写盘（临时文件 + rename，支持原地覆盖）、可读错误、退出码语义清晰、任何 panic 都被兜底成一行错误而不是崩溃栈
 
 ## 下载安装
 
-### 方式一：下载可执行包（推荐，无需 Python）
+到 [Releases](https://github.com/huanxiang666/pdftoolbox/releases) 下载对应平台包，解压即用：
 
-到 [Releases](https://github.com/huanxiang666/pdftoolbox/releases) 下载：
+| 平台 | 文件 |
+|---|---|
+| Windows x64 | `pdftoolbox-x.y.z-windows-amd64.zip` |
+| Windows arm64 | （CI 构建） |
+| Linux x64 / arm64 | `pdftoolbox-x.y.z-linux-*.tar.gz` |
+| macOS Intel / Apple Silicon | `pdftoolbox-x.y.z-darwin-*.tar.gz` |
 
-| 平台 | 文件 | 用法 |
-|---|---|---|
-| Windows x64 | `pdftoolbox-x.y.z-windows-x64.zip` | 解压后双击 `pdftoolbox-gui.exe`（图形界面）或用 `pdftoolbox.exe`（命令行） |
-| Linux x64 | `pdftoolbox-x.y.z-linux-x64.tar.gz` | 解压后运行 `pdftoolbox/pdftoolbox-gui`（图形界面）或 `pdftoolbox/pdftoolbox`（命令行） |
+Windows 包未做代码签名，SmartScreen 提示时选择「仍要运行」。
 
-> Windows 包未做代码签名，SmartScreen 提示时选择「仍要运行」。
-
-### 方式二：pip 安装（需要 Python 3.10+）
+### 从源码构建
 
 ```bash
-pip install git+https://github.com/huanxiang666/pdftoolbox.git
-pdftoolbox check      # 环境自检
-pdftoolbox-gui        # 图形界面
+go build -o pdftoolbox ./cmd/pdftoolbox
 ```
 
-## Word 文档支持：需要一个免费转换器
+## 图形界面
 
-**PDF 和图片开箱即用。**合并 Word 文档需要以下**任一**外部转换器（自动检测，也可用 `PDFTOOLBOX_WORD_CONVERTER=/path/to/soffice` 指定）：
+```bash
+pdftoolbox gui            # 启动本地 Web 界面并自动打开浏览器
+pdftoolbox gui --port 9000   # 指定端口
+pdftoolbox gui --no-browser  # 不自动开浏览器
+```
 
-1. **LibreOffice**（免费，全平台）：<https://www.libreoffice.org/download/>
-   - Debian/Ubuntu：`sudo apt install libreoffice-writer`
-2. **Windows + Microsoft Word**：`pip install "pdftoolbox[word]"`（docx2pdf 桥接）
+界面把七个功能做成标签页：**拖文件进去 → 点开始 → 下载结果**。所有处理都在本机完成，文件不经过任何外部服务器。关闭终端窗口即停止服务。
 
-没有转换器时，Word 输入会报出带安装指引的明确错误，PDF/图片功能不受影响。
-
-## 快速上手（CLI）
+## 命令行用法
 
 ```bash
 # 合并：pdf + word + 图片，顺序即参数顺序
@@ -68,7 +62,8 @@ pdftoolbox rotate in.pdf -o out.pdf --angle 90 --pages 1-3
 pdftoolbox number in.pdf -o out.pdf --start-page 2 --first-number 10 \
     --format "第 {n} 页 共 {t} 页" --position bottom-right
 
-# 水印：斜排平铺 / 图片水印
+# 水印：斜排 / 平铺 / 图片
+pdftoolbox watermark in.pdf -o out.pdf --text "机密" --opacity 0.18
 pdftoolbox watermark in.pdf -o out.pdf --text "机密" --tile --opacity 0.18
 pdftoolbox watermark in.pdf -o out.pdf --image logo.png --position bottom-right --image-scale 0.2
 
@@ -81,55 +76,70 @@ pdftoolbox info in.pdf --json
 pdftoolbox check
 ```
 
-**退出码**：`0` 成功 · `1` 操作失败（错误信息在 stderr） · `2` 用法错误 · `130` 用户中断。
+**退出码**：`0` 成功 · `1` 操作失败 · `2` 用法错误 · `130` 用户中断。
 
-**页码范围语法**（`--pages`/`--ranges` 通用）：`"3"`、`"2-7"`、`"5-"`（到末页）、`"-3"`（从首页）、`"1-3,5,8-"` 组合；`all` 或留空 = 全部页。
+**页码范围语法**：`"3"`、`"2-7"`、`"5-"`（到末页）、`"-3"`（从首页）、`"1-3,5,8-"` 组合；`all` 或留空 = 全部页。
 
-## 图形界面
+**位置**：`top-left top-center top-right middle-left center middle-right bottom-left bottom-center bottom-right`
 
-Windows 双击 `pdftoolbox-gui.exe`；Linux 运行 `pdftoolbox-gui` 或 `pdftoolbox gui`。
-七个标签页对应七个功能：合并 / 拆分 / 旋转 / 页码 / 水印 / 删空白页 / 信息。合并页支持调整文件顺序（上移/下移），所有操作在后台线程执行、界面不卡。
+**颜色**：`black white red green blue gray yellow orange purple cyan magenta`、`#rrggbb`、`#rgb`、`"r,g,b"`（0..1）
 
-## 行为说明（工程细节）
+## Word 支持
 
-- **原子写盘**：所有输出先写 `*.part<pid>` 临时文件再 rename，中途失败不会留下半个 PDF；**支持原地覆盖**（输出路径 = 输入路径是安全的，输入先整体读入内存）。
-- **空白页判定**：无任何可提取文字的页面，按 48 DPI 栅格化后统计非白像素占比，低于阈值（默认 0.002）判为空白。有文字的页面永不被删——白字、隐形文字也是内容。
-- **页码/水印文字**使用内置 CJK 字体渲染，中文正常显示且可搜索复制。
-- **图片合并尺寸**：默认按 96 DPI 把像素换算为 PDF 点（`--image-dpi` 可调；300 DPI 适合扫描件归档）。
-- **加密 PDF**：明确报错提示先解密（v0.1 不支持带密码输入）。
+PDF 与图片开箱即用。Word 输入需要一个外部转换器（自动探测，也可用 `PDFTOOLBOX_WORD_CONVERTER=/path/to/soffice` 指定）：
+
+- **LibreOffice**（免费，全平台）：<https://www.libreoffice.org/download/>
+
+没有转换器时 Word 输入会报带安装指引的明确错误，PDF/图片功能不受影响。
+
+## 行为说明
+
+- **原子写盘**：所有输出先写 `*.part<pid>` 再 rename；输出路径 = 输入路径是安全的
+- **空白页判定**：无文字操作、无图像/XObject、无着色、无非白绘制的页面判为空白；含文字的页面永不被删
+- **页码/水印中文**：内嵌 Noto Sans SC 子集（SIL OFL），渲染为嵌入字体，**可搜索可复制**
+- **图片尺寸**：默认 96 DPI 把像素换算为 PDF 点（`--image-dpi 300` 适合扫描件归档）
+- **加密 PDF**：明确报错提示先解密
+- **多帧 GIF / 多页 TIFF**：仅取第一帧/页
+
+## 与 Python 原版的差异
+
+| 项 | Python 原版 | 本 Go 版 |
+|---|---|---|
+| 分发 | PyInstaller 包 100+ MB，启动慢 | 单文件 14 MB，毫秒级启动 |
+| 依赖 | Python 运行时 + PyMuPDF + Pillow | 无 |
+| GUI | tkinter 桌面窗口 | 本地 Web UI（浏览器） |
+| 空白页判定 | 48 DPI 栅格 + 墨迹占比 | 内容流静态分析（更快，方向更安全） |
+| 平铺水印网格 | 相同算法 | 相同算法（行距 fontsize×4，奇数行错半列） |
 
 ## 从源码开发
 
 ```bash
-git clone https://github.com/huanxiang666/pdftoolbox.git && cd pdftoolbox
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest -q                                            # 62+ 项测试
+go test ./...        # 单元测试（common / ingest / ops）
+go vet ./...
+gofmt -l .
 ```
 
-## 打包发布
+构建发布包：
 
 ```bash
-pip install . pyinstaller
-pyinstaller packaging/pdftoolbox.spec --noconfirm    # 产物在 dist/pdftoolbox/
+powershell -File build.ps1 -Version 1.0.0     # Windows
+# 或交叉编译：
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o pdftoolbox-linux ./cmd/pdftoolbox
 ```
 
-推送 `v*` 标签后 GitHub Actions 自动构建 Windows / Linux 可执行包并发布 Release（含冻结二进制的多步冒烟测试）。
-
-## 技术栈与许可证
+## 技术栈与许可
 
 | 组件 | 用途 | 许可证 |
 |---|---|---|
-| [PyMuPDF](https://pymupdf.org/) | PDF 引擎（合并/拆分/旋转/文字/图像） | AGPL-3.0 |
-| [Pillow](https://python-pillow.org/) | 图片尺寸/EXIF 方向/透明度处理 | HPND |
-| [LibreOffice](https://www.libreoffice.org/)（可选，外部进程） | Word → PDF | MPL-2.0 |
-| [docx2pdf](https://pypi.org/project/docx2pdf/)（可选） | Windows Word COM 桥接 | MIT |
+| [pdfcpu](https://github.com/pdfcpu/pdfcpu) | PDF 引擎 | Apache-2.0 |
+| [golang.org/x/image](https://pkg.go.dev/golang.org/x/image) | webp/tiff/bmp 解码 | BSD-3-Clause |
+| Noto Sans SC 子集（内嵌） | 中文页码/水印 | SIL OFL 1.1 |
 
-本软件整体以 **AGPL-3.0** 发布（因捆绑 PyMuPDF），详见 [LICENSE](LICENSE) 与 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+本软件整体以 **AGPL-3.0** 发布，与原版一致，详见 [LICENSE](LICENSE) 与 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 ## 已知限制
 
-- 加密（带密码）PDF 不支持输入。
-- 多帧 GIF / 多页 TIFF 仅取第一帧/页。
-- Word 转换质量取决于 LibreOffice/MS Word 本身；复杂排版的 .doc 老格式偶有走样。
-- 水印平铺的角度/间距为固定算法，暂不支持自定义间距。
+- 加密（带密码）PDF 不支持输入
+- 多帧 GIF / 多页 TIFF 仅取第一帧/页
+- Word 转换质量取决于 LibreOffice 本身
+- 平铺水印的角度/间距为固定算法

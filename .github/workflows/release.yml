@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -10,111 +11,97 @@ permissions:
 
 jobs:
   build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            platform: windows-x64
-          - os: ubuntu-22.04
-            platform: linux-x64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version-file: go.mod
+          cache: true
 
-      - name: Install project + PyInstaller
-        run: python -m pip install . pyinstaller
+      - name: Test
+        run: go test ./...
 
-      - name: Build bundle
-        run: pyinstaller packaging/pdftoolbox.spec --noconfirm
-
-      # bash on both platforms so `set -e` catches any failing step; exercises
-      # the frozen binary through info -> clean -> number -> merge.
-      - name: Smoke test (frozen binary)
-        shell: bash
+      - name: Build
         env:
-          RUNNER_OS_NAME: ${{ runner.os }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
-          BIN=dist/pdftoolbox/pdftoolbox
-          if [[ "$RUNNER_OS_NAME" == "Windows" ]]; then BIN=dist/pdftoolbox/pdftoolbox.exe; fi
-          "$BIN" --version
-          "$BIN" check
-          python - <<'PY'
-          import pymupdf
-          d = pymupdf.open()
-          for i in range(2):
-              p = d.new_page()
-              p.insert_text((72, 100), f"release smoke {i+1}")
-          d.new_page()
-          d.save("release-smoke.pdf")
-          PY
-          "$BIN" clean release-smoke.pdf -o release-clean.pdf
-          "$BIN" number release-clean.pdf -o release-num.pdf --format "{n}/{t}"
-          "$BIN" watermark release-num.pdf -o release-wm.pdf --text SMOKE --opacity 0.3
-          "$BIN" merge release-wm.pdf release-wm.pdf -o release-merged.pdf
-          test -s release-merged.pdf
-          head -c 5 release-merged.pdf | grep -q "%PDF-"
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME#v}" \
+            -o "dist/pdftoolbox${EXT}" ./cmd/pdftoolbox
 
-      - name: Compute version
-        id: ver
-        shell: bash
+      - name: Smoke (linux only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            V=$(python -c "import pathlib,re;print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/pdftoolbox/__init__.py').read_text()).group(1))")
-            echo "version=${V}-dev" >> "$GITHUB_OUTPUT"
-          fi
+          ./dist/pdftoolbox --version
+          ./dist/pdftoolbox check
 
-      # Version/platform flow in through env, never string-spliced into the
-      # script body, so an unusual tag name can't inject shell.
-      - name: Package artifacts
-        shell: bash
-        env:
-          VER: ${{ steps.ver.outputs.version }}
-          PLATFORM: ${{ matrix.platform }}
-          RUNNER_OS_NAME: ${{ runner.os }}
+      - name: Package
         run: |
-          if [[ "$RUNNER_OS_NAME" == "Windows" ]]; then
-            powershell -NoProfile -Command 'Compress-Archive -Path dist/pdftoolbox -DestinationPath ("pdftoolbox-" + $env:VER + "-" + $env:PLATFORM + ".zip")'
-          else
-            tar -czf "pdftoolbox-${VER}-${PLATFORM}.tar.gz" -C dist pdftoolbox
-          fi
-          # sha256 checksums so users can verify downloads (sha256sum exists in
-          # Git Bash on Windows runners too).
-          for f in pdftoolbox-*.zip pdftoolbox-*.tar.gz; do
-            [ -e "$f" ] || continue
-            sha256sum "$f" > "$f.sha256"
+          VER="${GITHUB_REF_NAME#v}"
+          NAME="pdftoolbox-${VER}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "pkg/${NAME}"
+          cp -r dist/* "pkg/${NAME}/"
+          for f in README.md LICENSE THIRD-PARTY-NOTICES.md; do
+            [ -f "$f" ] && cp "$f" "pkg/${NAME}/"
           done
-          ls -la pdftoolbox-*
+          cd pkg
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -qr "${NAME}.zip" "${NAME}"
+            sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
+          else
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+            sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pdftoolbox-${{ matrix.platform }}
-          path: pdftoolbox-*
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: pkg/*
+          if-no-files-found: error
 
   release:
+    name: Publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
         with:
-          # glob required: artifacts are pdftoolbox-windows-x64 / -linux-x64
-          pattern: pdftoolbox-*
-          merge-multiple: true
           path: artifacts
 
-      - name: List release files
-        run: ls -la artifacts/
+      - name: Collect assets
+        run: |
+          mkdir -p assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} assets/ \;
+          ls -lh assets
 
-      - uses: softprops/action-gh-release@v2
+      - name: Create release
+        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: assets/*
           generate_release_notes: true

@@ -1,25 +1,12 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
-
-# Test / tooling caches
-.pytest_cache/
-.coverage
-htmlcov/
-.ruff_cache/
-
-# Operation outputs
-*-out.pdf
-*.part[0-9]*
-
-# OS / editor
+/dist/
+/pkg/
+*.exe
+*.zip
+*.tar.gz
+/testdata/out/
+*.pdf
+!internal/cjkfont/assets/*.ttf
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
