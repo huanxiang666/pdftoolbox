@@ -2,75 +2,46 @@ name: CI
 
 on:
   push:
-    branches: [main]   # PRs are covered by the pull_request trigger below
+    branches: [main, master, v1-go]
   pull_request:
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_dispatch:
 
 jobs:
   test:
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version-file: go.mod
+          cache: true
 
-      # ubuntu images usually ship LibreOffice; install the writer component
-      # if missing so the real Word->PDF e2e test (marker: wordconv) runs.
-      - name: Ensure LibreOffice (Linux, enables real Word conversion tests)
-        if: runner.os == 'Linux'
+      - name: Format check
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          if ! command -v soffice >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y libreoffice-writer
-          fi
-          soffice --version || true
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
 
-      - name: Install package
-        run: python -m pip install -e ".[dev]"
+      - name: Vet
+        run: go vet ./...
 
-      - name: Run tests
-        run: python -m pytest -q -rs
+      - name: Test
+        run: go test -race ./...
 
-      # shell: bash (Git Bash on Windows) fails on any non-zero exit code,
-      # unlike the pwsh default which ignores intermediate native failures.
-      - name: CLI smoke test
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags "-s -w" -o pdftoolbox ./cmd/pdftoolbox
+
+      - name: Smoke
         shell: bash
         run: |
-          pdftoolbox check
-          pdftoolbox --version
-          python - <<'PY'
-          import pymupdf
-          d = pymupdf.open()
-          for i in range(3):
-              p = d.new_page()
-              p.insert_text((72, 100), f"smoke page {i+1}")
-          d.new_page()  # blank page for 'clean'
-          d.save("smoke-in.pdf")
-          PY
-          pdftoolbox info smoke-in.pdf --json
-          pdftoolbox clean smoke-in.pdf -o smoke-clean.pdf
-          pdftoolbox number smoke-clean.pdf -o smoke-num.pdf --format "{n}/{t}"
-          pdftoolbox watermark smoke-num.pdf -o smoke-wm.pdf --text CI-SMOKE --opacity 0.2
-          pdftoolbox rotate smoke-wm.pdf -o smoke-rot.pdf --angle 90 --pages 1
-          pdftoolbox split smoke-rot.pdf -o smoke-split --per-page
-          pdftoolbox merge smoke-split/*.pdf -o smoke-merged.pdf
-          test -s smoke-merged.pdf
-          head -c 5 smoke-merged.pdf | grep -q "%PDF-"
-
-      # Real Word document through LibreOffice on Linux (frozen-free env).
-      - name: Word conversion smoke (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          pdftoolbox merge tests/data/sample.docx smoke-in.pdf -o smoke-word.pdf
-          test -s smoke-word.pdf
+          ./pdftoolbox --version
+          ./pdftoolbox check
