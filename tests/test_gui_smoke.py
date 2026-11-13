@@ -34,15 +34,34 @@ def app():
 
 
 def _drain(app, timeout=20.0):
-    """Process Tk events until the worker puts a terminal message."""
+    """Process Tk events until the running operation reports completion.
+
+    Waits on ``_busy`` rather than the queue: ``_poll_queue`` (an ``after``
+    callback) may consume the result between our update() and the queue
+    check, which made the old ``q.empty()`` probe race and flake.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         app.root.update()
-        if not app.q.empty():
-            # let _poll_queue consume it
-            app.root.update()
+        if not app._busy:
             return True
         time.sleep(0.02)
+    # Diagnostics on timeout: show the app state instead of a bare False.
+    try:
+        print(f"_drain timeout: busy={app._busy} qsize={app.q.qsize()} "
+              f"status={app.status_var.get()!r} log={app.log.get('1.0', 'end')!r}")
+        import sys as _sys
+        import threading as _threading
+        import traceback as _traceback
+
+        frames = _sys._current_frames()
+        for t in _threading.enumerate():
+            frame = frames.get(t.ident)
+            print(f"--- thread {t.name} alive={t.is_alive()} ---")
+            if frame is not None:
+                _traceback.print_stack(frame)
+    except Exception:
+        pass
     return False
 
 

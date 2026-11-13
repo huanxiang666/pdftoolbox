@@ -1,15 +1,35 @@
-"""Shared helpers: errors, page-range parsing, positions, colors, atomic save."""
+"""Shared helpers: errors, page-range parsing, positions, colors, atomic save.
+
+This module deliberately does NOT import pymupdf at module level: the GUI and
+CLI import common at startup, and a missing/broken pymupdf must degrade to a
+readable error per operation, never to a crash at launch.
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pymupdf
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import pymupdf
 
 
 class OpError(RuntimeError):
     """User-facing operation error (bad arguments, unsupported input, ...)."""
+
+
+def ensure_pymupdf():
+    """Import pymupdf or raise a readable OpError telling the user what to do."""
+    try:
+        import pymupdf
+
+        return pymupdf
+    except ImportError as exc:
+        raise OpError(
+            "PDF engine (pymupdf) is not installed or failed to load: "
+            f"{exc}. Install it with: pip install pymupdf"
+        ) from exc
 
 
 def parse_pages(spec: str | None, total: int) -> list[int]:

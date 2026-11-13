@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdftoolbox"
-version = "0.1.0"
+version = "1.2.0"
 description = "Cross-platform PDF toolbox: merge (PDF/Word/images), split, rotate, page numbers, watermark, blank-page removal. PDF 工具箱：合并/拆分/旋转/页码/水印/删空白页。"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -25,12 +25,16 @@ classifiers = [
 dependencies = [
     "pymupdf>=1.24",
     "pillow>=10",
+    # zero-Office .docx fallback renderer:
+    "python-docx>=1.1",
+    # COM bridge to an installed WPS Office / MS Word (no-op off Windows):
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "python-docx>=1.1"]
-# Windows users with MS Word installed can convert .docx through Word itself:
-word = ["docx2pdf>=0.1.8"]
+# Kept for backward compatibility; COM support is a default dependency now.
+word = ["pywin32>=306; sys_platform == 'win32'"]
 
 [project.scripts]
 pdftoolbox = "pdftoolbox.cli:main"

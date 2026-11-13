@@ -9,6 +9,16 @@
 English: [README_EN.md](README_EN.md)
 姊妹项目：[dwg2pdf — DWG/DXF 批量转 PDF](https://github.com/huanxiang666/dwg2pdf)
 
+## v1.2.0 稳定性与 GUI 强化
+
+- **启动永不闪退**：GUI 启动全程异常兜底——即使环境缺组件也弹出可读错误对话框，而不是无声消失；任何界面回调异常只记录并提示，不会终止程序。
+- **缺依赖降级为友好报错**：PDF 引擎（pymupdf）改为按需加载，未安装时 GUI 照常打开，仅在执行操作时提示 `pip install pymupdf pillow`。
+- **GUI 功能补齐 CLI 参数**：页码新增边距/颜色/透明度；水印新增颜色/位置/图片缩放；删空白页新增检测 DPI；合并新增图片 DPI 与「添加文件夹」批量导入。
+- **体验细节**：执行中显示进度条；完成后可一键「打开输出位置」；从资源管理器「复制为路径」粘贴进来的带引号路径自动识别；拆分自动填充默认输出目录。
+- **Windows 高分屏**：启用 Per-Monitor DPI 感知，界面文字不再模糊；使用原生主题。
+- **安装包瘦身约 60%**：剔除 pymupdf 捆绑的 AI 布局模型（ONNX）、C++ 开发文件与未使用的 numpy，Windows 包从 ~97 MB 降到 ~43 MB。
+- **无参数运行 `pdftoolbox` 时**打印中文功能导览（双击 CLI 不再是一闪而过的报错）。
+
 ## 特性
 
 - **合并**：PDF、Word（.doc/.docx/.odt/.rtf/.wps）、图片（png/jpg/bmp/tif/gif/webp）任意混合，按给定顺序合成一个 PDF；图片按指定 DPI 定尺寸，手机照片 EXIF 方向自动纠正
@@ -41,15 +51,21 @@ pdftoolbox check      # 环境自检
 pdftoolbox-gui        # 图形界面
 ```
 
-## Word 文档支持：需要一个免费转换器
+## Word 文档支持：四级转换链
 
-**PDF 和图片开箱即用。**合并 Word 文档需要以下**任一**外部转换器（自动检测，也可用 `PDFTOOLBOX_WORD_CONVERTER=/path/to/soffice` 指定）：
+**PDF 和图片开箱即用。** Word 类输入按以下顺序自动选择转换器：
 
-1. **LibreOffice**（免费，全平台）：<https://www.libreoffice.org/download/>
+1. **LibreOffice**（免费，全平台，保真度最好）：<https://www.libreoffice.org/download/>
    - Debian/Ubuntu：`sudo apt install libreoffice-writer`
-2. **Windows + Microsoft Word**：`pip install "pdftoolbox[word]"`（docx2pdf 桥接）
+   - 可用 `PDFTOOLBOX_WORD_CONVERTER=/path/to/soffice`（或 `wps` / `word`）强制指定
+2. **WPS Office / Microsoft Word**（Windows，经 COM 自动化，无需额外安装）
+   - 注意：部分 WPS 版本的自动化实例不带 PDF 导出组件，此时自动降级到第 4 级
+3. **`.wps` 私有格式**：仅 WPS Office 可读取，未安装 WPS 时给出明确提示
+4. **内置 .docx 基础排版渲染器**（零外部依赖，中文可搜索；保证任何 Windows
+   机器上 .docx 都能转出 PDF，复杂版式保真度有限）
 
-没有转换器时，Word 输入会报出带安装指引的明确错误，PDF/图片功能不受影响。
+没有外部转换器时，.doc/.odt/.rtf 会报带安装指引的明确错误；.docx 仍可由内置
+渲染器处理。PDF/图片功能不受影响。
 
 ## 快速上手（CLI）
 
@@ -122,8 +138,9 @@ pyinstaller packaging/pdftoolbox.spec --noconfirm    # 产物在 dist/pdftoolbox
 |---|---|---|
 | [PyMuPDF](https://pymupdf.org/) | PDF 引擎（合并/拆分/旋转/文字/图像） | AGPL-3.0 |
 | [Pillow](https://python-pillow.org/) | 图片尺寸/EXIF 方向/透明度处理 | HPND |
+| [python-docx](https://github.com/python-openxml/python-docx) | 内置 .docx 基础排版渲染器 | MIT |
+| [pywin32](https://github.com/mhammond/pywin32)（仅 Windows） | WPS / MS Word COM 自动化桥接 | PSF |
 | [LibreOffice](https://www.libreoffice.org/)（可选，外部进程） | Word → PDF | MPL-2.0 |
-| [docx2pdf](https://pypi.org/project/docx2pdf/)（可选） | Windows Word COM 桥接 | MIT |
 
 本软件整体以 **AGPL-3.0** 发布（因捆绑 PyMuPDF），详见 [LICENSE](LICENSE) 与 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
@@ -131,5 +148,8 @@ pyinstaller packaging/pdftoolbox.spec --noconfirm    # 产物在 dist/pdftoolbox
 
 - 加密（带密码）PDF 不支持输入。
 - 多帧 GIF / 多页 TIFF 仅取第一帧/页。
-- Word 转换质量取决于 LibreOffice/MS Word 本身；复杂排版的 .doc 老格式偶有走样。
+- 部分 WPS 版本的自动化实例不带 PDF 导出组件：COM 转换会自动降级为内置基础
+  排版渲染器（.docx），复杂版式（图文混排/浮动对象）保真度有限；安装 LibreOffice
+  可获得最佳保真度。
+- 内置渲染器不处理图片与浮动对象；Word 转换质量上限取决于所选转换器。
 - 水印平铺的角度/间距为固定算法，暂不支持自定义间距。

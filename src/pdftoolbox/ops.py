@@ -9,11 +9,20 @@ import io
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pymupdf
 from PIL import Image
 
-from .common import OpError, format_pages, parse_color, parse_pages, resolve_position, save_pdf
+from .common import (
+    OpError,
+    ensure_pymupdf,
+    format_pages,
+    parse_color,
+    parse_pages,
+    resolve_position,
+    save_pdf,
+)
 from .ingest import WordConverter, open_any
+
+pymupdf = ensure_pymupdf()
 
 #: Placeholder tokens supported by number/watermark format strings.
 FORMAT_TOKENS = ("{n}", "{t}")

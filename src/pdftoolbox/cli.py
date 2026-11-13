@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--version", action="version", version=f"pdftoolbox {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     p = sub.add_parser("merge", help="merge PDF/Word/image files into one PDF (order = argument order)")
     p.add_argument("inputs", nargs="+", help=f"input files ({', '.join(SUPPORTED_INPUT_EXTENSIONS)}) and/or directories")
@@ -135,6 +135,12 @@ def run_check() -> int:
         print("Word converter: not found")
         print(WORD_INSTALL_HINT)
     try:
+        import docx  # noqa: F401
+
+        print("built-in .docx fallback renderer: OK (basic layout, no Office needed)")
+    except Exception:
+        print("built-in .docx fallback renderer: unavailable (pip install python-docx)")
+    try:
         import tkinter  # noqa: F401
 
         print("tkinter: OK (gui available)")
@@ -167,6 +173,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.command is None:
+        # Bare `pdftoolbox` (e.g. a double-clicked exe): show a friendly
+        # overview instead of a bare "arguments required" argparse error.
+        print(f"pdftoolbox {__version__} — PDF 工具箱\n")
+        print("图形界面：pdftoolbox gui   （或双击 pdftoolbox-gui.exe）")
+        print("命令行用法：")
+        for cmd, desc in (
+            ("merge",  "合并 PDF/Word/图片为一个 PDF"),
+            ("split",  "拆分 PDF（每页或按页码范围）"),
+            ("rotate", "旋转页面"),
+            ("number", "添加页码（自定义起始页/编号/格式）"),
+            ("watermark", "添加文字/图片水印"),
+            ("clean",  "删除空白页"),
+            ("info",   "查看 PDF 信息"),
+            ("check",  "环境自检"),
+            ("gui",    "启动图形界面"),
+        ):
+            print(f"  pdftoolbox {cmd:<9}  {desc}")
+        print("\n完整帮助：pdftoolbox <命令> --help")
+        return 0
+
     if args.command == "check":
         return run_check()
 
@@ -176,10 +203,23 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError as exc:
             print(f"GUI unavailable on this Python: {exc}", file=sys.stderr)
             return 2
-        return gui.main()
+        try:
+            return gui.main()
+        except Exception as exc:
+            # The GUI reports errors in dialogs; mirror them on stderr so a
+            # console-launched `pdftoolbox gui` never dies silently either.
+            print(f"error: GUI failed: {exc.__class__.__name__}: {exc}", file=sys.stderr)
+            return 1
 
-    from . import ops
-    from .ingest import collect_inputs
+    try:
+        from . import ops
+        from .ingest import collect_inputs
+    except ImportError as exc:
+        # Missing/broken dependency (typically pymupdf): readable one-liner
+        # instead of a traceback.
+        print(f"error: failed to load a required dependency: {exc}", file=sys.stderr)
+        print("hint: pip install pymupdf pillow", file=sys.stderr)
+        return 1
 
     try:
         if args.command == "merge":

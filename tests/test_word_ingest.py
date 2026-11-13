@@ -86,9 +86,11 @@ def test_open_any_word_without_converter_raises_hint(tmp_path, monkeypatch):
     import pdftoolbox.ingest as ingest
 
     monkeypatch.setattr(ingest, "_SOFFICE_CANDIDATES", ("soffice",))
-    docx = make_docx(tmp_path / "f.docx")
+    # .docx has the built-in fallback renderer, so use .doc to exercise the
+    # "no converter at all" hint path.
+    doc = make_docx(tmp_path / "f.doc")
     with pytest.raises(OpError, match="LibreOffice"):
-        open_any(docx)
+        open_any(doc)
 
 
 def test_open_any_pdf_and_image(tmp_path):

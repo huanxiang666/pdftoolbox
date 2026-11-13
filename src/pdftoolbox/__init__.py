@@ -9,7 +9,7 @@ external LibreOffice/MS-Word bridge (auto-detected).
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "1.2.0"
 
 PDF_EXTENSIONS = (".pdf",)
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif", ".webp")
